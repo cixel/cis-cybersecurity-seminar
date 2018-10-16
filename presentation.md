@@ -26,6 +26,8 @@ slidenumbers: true
 
 ^ This is me, my name is Ehden
 
+^ The calendar event for the cybersecurity seminar says i'm a girl---sorry to disappoint
+
 ^ I work on the node agent at Contrast Security.
 we're an application security startup based out of Baltimore
 
@@ -64,6 +66,8 @@ He's the one who put me up to this, so if you hate this, blame him
 ^ come talk to us, ask questions, etc., we want to meet all you
 
 ^ that's why we're here, that's why i'm doing this
+
+^ open to questions during the talk, so if you've got anything please just raise your hand, i'll try to pay attention
 
 ---
 
@@ -158,10 +162,50 @@ document.getElementByID('snippet')
 
 ^ But not all at once, all the time
 
-^ And so to help you manage these, it also introduced a module system, to keep organize these, and a way to import things, to help you bring just the things you actually need into your code, the way you would in Python or Java
+^ So to help you manage these and pull in only what you need, it also added a module system
 
 ^ OPTIONAL: In browser, different libraries, when loaded, are pretty just stacked on top of one another globally
 So node does this a bit more neatly
+
+---
+
+```javascript
+const thing = require('./thing');
+
+const thingy = thing(1);
+
+module.exports = {
+	thingy
+};
+```
+
+^ that module system looks like this
+
+^ to import a module, you call require
+
+^ and to export something as a module, when your code is imported, you modify module.exports 
+
+---
+
+[.code-highlight: 1, 9]
+
+```javascript
+(function (exports, require, module, __filename, __dirname) { 
+	const thing = require('./thing');
+
+	const thingy = thing(1);
+
+	module.exports = {
+		thingy
+	};
+});
+```
+
+^ this is what node does behind the scenes whenever your file is being loaded to make that possible
+
+^ it just wraps it all and injects a bunch of things, then it calls your file like a function
+
+^ and when that function ends, it throws 'exports' in a cache
 
 ---
 
@@ -506,34 +550,6 @@ But I don't reeeally consider my job, day-to-day, to be AppSec
 
 ---
 
-## Transparency
-
-TODO TODO maybe remove this slide?
-
-[.quote: alignment(left)]
-> “And these are your reasons, my lord?"
-
-[.quote: alignment(left)]
-> "Do you think I have others?" said Lord Vetinari. "My motives, as ever, are entirely transparent."
-
-[.quote: alignment(left)]
-> Hughnon reflected that 'entirely transparent' meant either that you could **see right through them** or that you **couldn't see them at all.**”
--- Terry Pratchett, The Truth
-
-^ WATER BREAK!
-
-^ you'll hear me mention transparency a few times, and that's the term that gets used a lot in these situations
-
-^ it's kind of a bad one because it can mean two totally different things, not even depending on how it's used. it just can.
-
-^ for our purposes, when I say transparent, I mean totally invisible
-
-^ whatever you're doing shouldn't be obvious
-
-^ our basketball can't weigh 5 pounds. that's transparent.
-
----
-
 ## Monkey patching
 
 *A monkey patch is a way for a program to __extend or modify__ supporting system software locally (affecting __only the running instance__ of the program).*[^1]
@@ -747,20 +763,16 @@ and javascript is more than happy to let you break the function
 
 ![right](tree.jpg)
 
-## AST Rewriting
+# Abstract Syntax Trees
 
+> an abstract syntax tree (AST), or just syntax tree, is a tree representation of the abstract syntactic structure of source code written in a programming language.
+--Wikipedia
 
-***MOVE ME***
+^ let's start with another definition
 
-Used for...
+^ this time we use wikipedia
 
-- React, TypeScript
-- Minification
-- Prettification
-- Refactoring
-- Code coverage
-
-^ "kind of js but not quite" languages
+^ ... we got ourselves another definition that includes most of the term behind defined
 
 ---
 
@@ -1076,6 +1088,22 @@ Module.prototype._compile = function(content, filename) {
 
 ---
 
+![right](tree.jpg)
+
+## AST Rewriting
+
+Used for...
+
+- React, TypeScript
+- Minification
+- Prettification
+- Refactoring
+- Code coverage
+
+^ "kind of js but not quite" languages
+
+---
+
 ![200%](output2.png)
 
 ^ Now when we run the app with our instrumentation, our logs look like this
@@ -1087,6 +1115,18 @@ Module.prototype._compile = function(content, filename) {
 ^ Go back to code and talk about how we can see most of what our code and library code is doing, but we're missing a few things
 
 ^ Let's look at this line 'req.input.name'---what do we do if we want to see that property access?
+
+^ We can't really monkeypatch for that because those dot accessors aren't functions
+
+^ AST rewriting COULD work but the rewrite would be involed, and you've have to rewrite a ton of stuff you probably won't need
+JS ASTs really don't tell you enough to let you know that 'req' is actually a request object
+So you kinda have to spray rewrites everywhere
+
+^ and your instrumentation has to check at runtime whether the object you're accessing is a request or not
+
+^ you'd probably have to add a ton of function calls to be able to do this as an AST rewrite
+
+^ and that'd kill performance
 
 [.code-highlight: all]
 [.code-highlight: 6]
@@ -1147,6 +1187,7 @@ app.listen(3000, function() {
 [.code-highlight: 3-17]
 [.code-highlight: 4-16]
 [.code-highlight: 19]
+[.code-highlight: all]
 
 ^ here's an example of using a proxy to assimilate
 [BUILD]
@@ -1187,16 +1228,187 @@ const borg = new Proxy(person, handler);
 
 ---
 
-# Proxy stuff I should mention
+Watching request reads
 
-Proxies are pretty new and you don't see them in many places yet, but they've got a ton of potential for use in instrumentation and security
+1. Monkey-patch express, add intercept for every incoming request
+1. Proxy `request.query` with a `get` trap
 
-Interesting patterns to mention:
+^ So here's what we're gonna do with proxies and it's gonna be dope
 
-- Recursive proxies, eg membranes. Link to whitepaper
-- Proxies on empty object. Can be used to create mocks for testing
-- You can also 'protect' objects that'll be consumed by code which isn't yours:
-  Revokable proxies, 'honeypots' where you let them set and get from a dummy object but gets to actual properties on the real object return the real values
+^ First we need to monkey-patch epxress
+
+---
+
+## Patching express
+
+```javascript
+const express = require('express');
+// patch express()?
+const app = express();
+```
+
+^ This is from our app. We want to patch that function express exports
+
+^ That's different from what we've done so far, because
+
+^ what we've done is change a function on an object by reassigning to that object
+
+^ for this, we have to change the object itself (all function in js are objects)
+
+^ so we take a slightly different approach
+
+---
+
+## Patching express
+
+```javascript
+const load = Module._load;
+Module._load = function(filename) {
+	let mod = load.apply(this, arguments);
+
+	if (filename === 'express' && !hooked.has(mod)) {
+		// woo!
+	}
+
+	return mod;
+};
+```
+
+^ what we do is we patch module._load, which gets called by require
+
+^ and inspect the filename---whenever express loads, we'll wrap that function
+
+---
+## Patching express
+
+```javascript
+const express = require('express');
+const app = express();
+console.log(Object.keys(express));
+//  [application, request, response, Route, Router, json, query, static, urlencoded]
+```
+
+^ but there's another problem---express is a function and an object and it's got all these properties
+
+^ so if we just wrap it in another function, we're gonna drop these other properties
+
+---
+
+## Patching express
+
+[.code-highlight: 3-7]
+
+```javascript
+let mod = load.apply(this, arguments);
+if (filename === 'express' && !hooked.has(mod)) {
+	mod = new Proxy(mod, {
+		apply(tar, thisArg, args) {
+			return tar.apply(thisArg, args);
+		}
+	});
+}
+return mod;
+```
+
+^ proxies to the rescue
+
+^ we trap apply, and this lets us change only how express gets called as a function
+
+^ but all gets on all those other properties are untouched
+
+---
+
+## Watching requests
+
+[.code-highlight: 3-13]
+```javascript
+mod = new Proxy(mod, {
+	apply(tar, thisArg, args) {
+		const app = tar.apply(thisArg, args);
+
+		app.use(function(req, res, next) {
+			req.query = new Proxy(req.query, {
+				get(tar, prop, recv) {
+					const val = Reflect.get(...arguments);
+					console.log(`getting ${prop} from query: ${val}`);
+					return val;
+				}
+			})
+		});
+
+		return app;
+	}
+});
+```
+
+^ now we have app, so we can call it like the app would to register a handler for all requests (called a middleware)
+
+^ and in that handler, we redefine request.query as a Proxy, with a get trap
+
+---
+
+## Other fun stuff
+
+```javascript
+apply(tar, thisArg, args) {
+	const app = tar.apply(thisArg, args);
+
+	app.use(function(req, res, next) {
+		req.query = new Proxy(req.query, {
+			get(tar, prop, recv) {
+				const val = Reflect.get(...arguments);
+				data.queries.push({
+					key: prop,
+					val: v
+				});
+				return val;
+			}
+		})
+	});
+
+	app.get('/intrumentation/calls', function (req, res) {
+		res.send(data.calls);
+	});
+
+	return app;
+}
+```
+
+---
+
+# Demo
+
+---
+
+[.build-lists: true]
+
+## Proxy stuff I should mention
+
+^ Proxies are pretty new and you don't see them in many places yet, but they've got a ton of potential for use in instrumentation and security
+
+Interesting patterns:
+
+- Recursive proxies
+- Proxies on empty object
+- Revocable proxies
+
+^ explain Recursive proxies, build
+
+^ explain how wild it is that you can trap for properties which don't actually exist, can make mocks this way
+
+
+---
+
+## It's over
+
+- instrumentation is awesome
+- javascript is \__\_
+- composition of monkey patches, AST rewrites, and proxies = $$
+
+### Contact me:
+
+- [ehden@contrastsecurity.com](mailto:ehden@contrastsecurity.com)
+- [github.com/cixel](https://github.com/cixel)
 
 ---
 
@@ -1207,29 +1419,4 @@ Interesting patterns to mention:
 - Contrast Security: [https://www.contrastsecurity.com](https://www.contrastsecurity.com)
 - Node.js Foundation: [https://nodejs.org/en/about/resources/](https://nodejs.org/en/about/resources/)
 - [Slate](http://www.slate.com/articles/health_and_science/science/2017/06/the_mayor_of_redondo_beach_california_never_killed_a_tree_named_clyde.html)
-
----
-
-TODO TODO
-
-Make sure my comments in code point to the correct files
-
-- If this slide is confusing to you, just look in the upper right, we're all going to die
-- Needs to have an operating time that is less than the heat death of the universe
-- Can include promisify and deprecate for monkey patch example
-
----
-
-```bash
-$ node demo.js
-Example app listening on port 3000!
-```
-
-![inline](xss.png)
-
-^ if you set name to <script>alert(0)</script>
-
-^ then it looks like this and that's unfortunate
-
-^ and as i mentioned, all the code from this will be up on my github---don't use this blob, it's not good
 

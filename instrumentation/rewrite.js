@@ -34,35 +34,35 @@ function rewrite(content, filename) {
 }
 
 function injectLog(node, filename) {
-	// const name = node.id && node.id.name || 'anonymous';
-	// const start = node.loc.start;
-	// const rel = path.relative(process.cwd(), filename);
-	// const loc = `${name} (${rel}:${start.line}:${start.column})`;
+	const name = node.id && node.id.name || 'anonymous';
+	const start = node.loc.start;
+	const rel = path.relative(process.cwd(), filename);
+	const loc = `${name} (${rel}:${start.line}:${start.column})`;
 
-	// node.body.type === 'BlockStatement' && node.body.body.unshift({
-	// 	'type': 'ExpressionStatement',
-	// 	'expression': {
-	// 		'type': 'CallExpression',
-	// 		'callee': {
-	// 			'type': 'MemberExpression',
-	// 			'computed': false,
-	// 			'object': {
-	// 				'type': 'Identifier',
-	// 				'name': 'console'
-	// 			},
-	// 			'property': {
-	// 				'type': 'Identifier',
-	// 				'name': 'log'
-	// 			}
-	// 		},
-	// 		'arguments': [
-	// 			{
-	// 				type: 'Literal',
-	// 				value: loc
-	// 			}
-	// 		]
-	// 	}
-	// });
+	node.body.type === 'BlockStatement' && node.body.body.unshift({
+		'type': 'ExpressionStatement',
+		'expression': {
+			'type': 'CallExpression',
+			'callee': {
+				'type': 'MemberExpression',
+				'computed': false,
+				'object': {
+					'type': 'Identifier',
+					'name': 'global'
+				},
+				'property': {
+					'type': 'Identifier',
+					'name': 'addCall'
+				}
+			},
+			'arguments': [
+				{
+					type: 'Literal',
+					value: loc
+				}
+			]
+		}
+	});
 }
 
 module.exports = rewrite;
