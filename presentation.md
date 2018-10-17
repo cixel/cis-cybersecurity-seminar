@@ -27,7 +27,7 @@ slidenumbers: true
 ^ This is me, my name is Ehden
 
 ^ The calendar event for the cybersecurity seminar says i'm a girl---sorry to disappoint
-
+]
 ^ I work on the node agent at Contrast Security.
 we're an application security startup based out of Baltimore
 
@@ -81,6 +81,7 @@ He's the one who put me up to this, so if you hate this, blame him
 
 ---
 
+[.background-color: #f0f0f0]
 ![left 25%](node.png)
 
 # JavaScipt. On the server.
@@ -109,6 +110,7 @@ document.getElementByID('snippet')
 
 ---
 
+[.background-color: #f0f0f0]
 ![inline](v8.png)
 ![inline](node.png)
 
@@ -183,7 +185,7 @@ module.exports = {
 
 ^ to import a module, you call require
 
-^ and to export something as a module, when your code is imported, you modify module.exports 
+^ and to export something as a module, when your code is imported, you modify module.exports
 
 ---
 
@@ -523,14 +525,16 @@ At the end of the day, your focus is on the physical properties of the ball
 [.background-color: #ffffff]
 ![100% original](thinking-bball-c.png)
 
-^ It has to measure well to be useful
+^ It has to be accurate but it can't weight 8 pounds 
 
-^ But it also can't weight 8 pounds or nobody will use it
+^ or nobody will use it
 
 ^ And if they did use it, the app would just be like "you suck at free throws with an 8 pound ball"
 and that's not a particularly useful metric
 
-^ There are not that many security experts in the room.
+^ There are like 5 people from contrast in the room
+
+^ There are probably not that many security experts in here
 Maybe a few. I'm not one of them.
 Arshan probably is, O'Leary probably is.
 
@@ -548,6 +552,10 @@ But I don't reeeally consider my job, day-to-day, to be AppSec
 - AST rewrites
 - Object proxies
 
+^ These are our sensors, or the tools we use for creating sensors
+
+^ and I'm gonna go through each of them
+
 ---
 
 ## Monkey patching
@@ -556,7 +564,7 @@ But I don't reeeally consider my job, day-to-day, to be AppSec
 
 ![100%](see-no-evil.png) ![100%](hear-no-evil.png) ![100%](speak-no-evil.png)
 
-[^1]: [some wikipedia article](https://en.wikipedia.org/wiki/Monkey_patch)
+[^1]: [Wikipedia](https://en.wikipedia.org/wiki/Monkey_patch)
 
 ^ Monkey Patching. Kind of a weird term.
 
@@ -972,6 +980,8 @@ and javascript is more than happy to let you break the function
 
 ^ and this is the AST for our little demo app
 
+^ i know you can't read that or even really see it
+
 ^ actually this isn't the entire app, this is just the 4 lines for responding to the request to '/hi'
 
 ---
@@ -1088,6 +1098,14 @@ Module.prototype._compile = function(content, filename) {
 
 ---
 
+![200%](output2.png)
+
+^ Now when we run the app with our instrumentation, our logs look like this
+
+^ btw, I cropped the shit out of this, there's probably more than 2 thousand lines now
+
+---
+
 ![right](tree.jpg)
 
 ## AST Rewriting
@@ -1104,17 +1122,11 @@ Used for...
 
 ---
 
-![200%](output2.png)
+^ Let's go back to our demo
 
-^ Now when we run the app with our instrumentation, our logs look like this
+^ Now we're seeing a lot of what the app does, but we're still missing some pretty important things
 
-^ btw, I cropped the shit out of this, there's probably more than 2 thousand lines now
-
----
-
-^ Go back to code and talk about how we can see most of what our code and library code is doing, but we're missing a few things
-
-^ Let's look at this line 'req.input.name'---what do we do if we want to see that property access?
+^ Let's focus on this line [BUILD]. How do we watch property access if we want to see what data an app pulls off the request?
 
 ^ We can't really monkeypatch for that because those dot accessors aren't functions
 
@@ -1162,11 +1174,13 @@ app.listen(3000, function() {
 
 ^ They are really new to the language.
 
-*Used to define custom behavior for fundamental operations (e.g. property lookup, assignment, enumeration, function invocation, etc).*[^1]
+*Used to define custom behavior for fundamental operations (e.g. property lookup, assignment, enumeration, function invocation, etc).*[^2]
 
-[^1]: [MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy)
+[^2]: [MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy)
 
 ^ In short, proxies wrap objects and allow you to define behavior for intercepting a bunch of the basic operations you'd perform on an object
+
+^ operations include setting, getting, and deleting properties, calling as a function, constructing, getting the prototype of, and so on
 
 ---
 
@@ -1178,7 +1192,9 @@ app.listen(3000, function() {
 
 **handler**: object which holds traps
 
-^ operations include setting, getting, and deleting properties, calling as a function, constructing, getting the prototype of, and so on
+^ a few definitions to be aware of
+
+^ [MAYBE DRINK HERE]
 
 ---
 
@@ -1228,7 +1244,11 @@ const borg = new Proxy(person, handler);
 
 ---
 
-Watching request reads
+## Watching request reads
+
+```javascript
+const name = req.query.name;
+```
 
 1. Monkey-patch express, add intercept for every incoming request
 1. Proxy `request.query` with a `get` trap
@@ -1266,7 +1286,7 @@ const load = Module._load;
 Module._load = function(filename) {
 	let mod = load.apply(this, arguments);
 
-	if (filename === 'express' && !hooked.has(mod)) {
+	if (filename === 'express') {
 		// woo!
 	}
 
@@ -1276,7 +1296,9 @@ Module._load = function(filename) {
 
 ^ what we do is we patch module._load, which gets called by require
 
-^ and inspect the filename---whenever express loads, we'll wrap that function
+^ and inspect the filename for whenever express loads
+
+^ and this code i've excluded is where we'd wrap the function
 
 ---
 ## Patching express
@@ -1285,7 +1307,19 @@ Module._load = function(filename) {
 const express = require('express');
 const app = express();
 console.log(Object.keys(express));
-//  [application, request, response, Route, Router, json, query, static, urlencoded]
+/* 
+[
+	application,
+	request,
+	response,
+	Route,
+	Router,
+	json,
+	query,
+	static,
+	urlencoded
+]
+*/
 ```
 
 ^ but there's another problem---express is a function and an object and it's got all these properties
@@ -1300,7 +1334,7 @@ console.log(Object.keys(express));
 
 ```javascript
 let mod = load.apply(this, arguments);
-if (filename === 'express' && !hooked.has(mod)) {
+if (filename === 'express') {
 	mod = new Proxy(mod, {
 		apply(tar, thisArg, args) {
 			return tar.apply(thisArg, args);
@@ -1388,9 +1422,11 @@ apply(tar, thisArg, args) {
 
 Interesting patterns:
 
-- Recursive proxies
+- Recursive proxies[^3]
 - Proxies on empty object
 - Revocable proxies
+
+[^3]: [Transparent Object Proxies for JavaScript](https://arxiv.org/pdf/1504.08100.pdf)
 
 ^ explain Recursive proxies, build
 
